@@ -3,7 +3,7 @@ const pino = require('pino');
 const express = require ('express');
 const QRCode = require('qrcode'); 
 
-require('./group.js'); // 1. INI AJA. LANGSUNG KE LOAD PAS START
+require('./group.mjs'); // 1. INI AJA. LANGSUNG KE LOAD PAS START
 
 const SESSION_FOLDER = './baileys-auth'; 
 const PORT = process.env.PORT || 3000; 
