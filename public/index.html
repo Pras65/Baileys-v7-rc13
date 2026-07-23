@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nayozu Bot Panel</title>
+    <style>
+        body { background:#0a0a0a; color:#fff; font-family:sans-serif; text-align:center; padding-top:40px }
+        .box { background:#111; padding:30px; border-radius:20px; border:2px solid #25D366; display:inline-block; }
+        img { width:300px; background:white; padding:20px; border-radius:20px; }
+        .green { color:#25D366 } .orange { color:#ffa500 } .red { color:#ff4444 }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2 id="title">Memuat...</h2>
+        <div id="content"></div>
+        <p id="desc" style="color:#aaa"></p>
+    </div>
+
+    <script>
+        async function cekStatus() {
+            const res = await fetch('/api/status')
+            const data = await res.json()
+            
+            const title = document.getElementById('title')
+            const content = document.getElementById('content')
+            const desc = document.getElementById('desc')
+
+            if (data.connected) {
+                title.innerHTML = 'Bot Sudah Konek'
+                title.className = 'green'
+                content.innerHTML = '<p>✅ Sesi aktif, tidak perlu scan QR</p>'
+                desc.innerText = 'Bot dan Web jalan bersamaan'
+            } 
+            else if (data.qr) {
+                title.innerHTML = 'Scan QR untuk Bot WA'
+                title.className = 'green'
+                content.innerHTML = `<img src="${data.qr}">`
+                desc.innerText = 'QR expired 20 detik, refresh otomatis'
+            }
+            else if (data.session) {
+                title.innerHTML = 'Menghubungkan ulang'
+                title.className = 'orange'
+                content.innerHTML = '<p>⏳ Sesi ditemukan, tunggu 5 detik</p>'
+                desc.innerText = ''
+            }
+            else {
+                title.innerHTML = 'Belum ada sesi'
+                title.className = 'red'
+                content.innerHTML = '<p>❌ Refresh halaman untuk generate QR</p>'
+                desc.innerText = ''
+            }
+        }
+        
+        cekStatus()
+        setInterval(cekStatus, 3000) // auto refresh tiap 3 detik
+    </script>
+</body>
+</html>
