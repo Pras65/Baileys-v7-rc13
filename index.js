@@ -64,11 +64,12 @@ app.get('/api/status', (req, res) => {
         session: fs.existsSync(path.join(SESSION_FOLDER, 'creds.json'))
     })
 })
-
 app.get('/', (req, res) => {
+    const url = `${req.protocol}://${req.get('host')}` // otomatis jadi https://baileys-v7-rc13-production.up.railway.app
+    console.log(`Server jalan di ${url}`) // log nya juga ikut url railway
+    
     res.sendFile(path.join(__dirname, 'public', 'index.html')); // kirim index.html
 });
-
 app.listen(PORT, () => {
-    console.log(`Server jalan di http://localhost:${PORT}`)
+    console.log(`Server web di port ${PORT}`)
 })
