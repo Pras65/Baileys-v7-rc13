@@ -70,6 +70,12 @@ app.get('/', (req, res) => {
     
     res.sendFile(path.join(__dirname, 'public', 'index.html')); // kirim index.html
 });
+// taruh di bawah app.get('/api/status')
+
+// ENDPOINT KHUS UPTIME ROBOT
+app.get('/api/ping', (req, res) => {
+    res.status(200).json({ status: 'ok', uptime: process.uptime() })
+});
 app.listen(PORT, () => {
     console.log(`Server web di port ${PORT}`)
 })
