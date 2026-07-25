@@ -1,48 +1,31 @@
 /* ===============================
- * NAYOZU GROUP MANAGER BOT
- * Engine: Baileys v7.0.0
- * Environment: Termux / Node.js
+ * Nayozu bot 
+ * Engine : Baileys v7.0.0
+ * Environment : Termux / Node.js
  * =============================== */
-
 const { Boom } = require("@hapi/boom")
-const { getSock } = require("./index.js") // ambil sock dari index
-
-const SESSION_FOLDER = "./session_otp" // ini udah gak dipake, auth di handle index
+const { getSock } = require("./index.js")
+const SESSION_FOLDER = "./baileys-auth" 
 const PREFIX = "."
 const GROUPS = new Map()
-
-// Masukkan ID standar dan LID privasi milikmu (Master)
 const MASTER = [
     "6285779306512@s.whatsapp.net",
     "260129140297849@lid"
 ]
-
-const sock = getSock() // pake sock dari index
-
-console.log("[GROUP] Handler loaded, nunggu sock ready...")
-
-// Cek sock udah ada baru pasang event
+const sock = getSock() 
+console.log("[ Groups ] Handler loaded, nunggu sock ready...")
 function init() {
     if (!sock) return setTimeout(init, 1000)
-
-    console.log("[GROUP] Bot Connected and Ready!")
-
-    // ===============================
-    // UTILITY FUNCTIONS
-    // ===============================
-
+    console.log("[ Groups ] Bot connected & Ready!")
     function getSetting(jid) {
         if (!GROUPS.has(jid)) {
             GROUPS.set(jid, { antilink: false, antiapk: false })
         }
         return GROUPS.get(jid)
     }
-
     const reply = (jid, text, quoted = null) => {
         return sock.sendMessage(jid, { text }, quoted? { quoted } : {})
     }
-
-    // Fungsi Normalisasi JID (Mempertahankan domain asli)
     function clearJid(jid) {
         if (!jid) return ""
         const parts = jid.split("@")
@@ -50,7 +33,6 @@ function init() {
         const domain = parts[1] || "s.whatsapp.net"
         return `${user}@${domain}`
     }
-
     const isGroup = (jid) => jid?.endsWith("@g.us")
     const isMaster = (jid) => MASTER.includes(clearJid(jid))
 
@@ -63,34 +45,25 @@ function init() {
             ""
         )
     }
-
     function getMentioned(msg) {
         return msg?.extendedTextMessage?.contextInfo?.mentionedJid || []
     }
-
-    // ===============================
-    // AUTHORITY & CACHE HANDLERS
-    // ===============================
-
     async function isBotAdmin(jid) {
         try {
             const metadata = await sock.groupMetadata(jid)
             const myId = clearJid(sock.user?.id)
             const myLid = clearJid(sock.user?.lid)
-
             const botData = metadata.participants.find(v => {
                 const pid = clearJid(v.id)
                 const plid = v.lid? clearJid(v.lid) : null
                 return pid === myId || (myLid && pid === myLid) || (plid && plid === myId) || (myLid && plid && plid === myLid)
             })
-
             return botData? (botData.admin === "admin" || botData.admin === "superadmin") : false
         } catch (err) {
             console.log(`Gagal cek admin bot di ${jid}:`, err)
             return false
         }
     }
-
     async function isAdmin(jid, user) {
         try {
             const metadata = await sock.groupMetadata(jid)
@@ -130,36 +103,33 @@ function init() {
 
         return { metadata, admins, isadmin, botadmin }
     }
-
     async function getTarget(message) {
-        const msg = message.message
-        const mention = getMentioned(msg)
-
-        if (mention.length) {
-            return clearJid(mention[0])
-        }
-
-        const quoted = msg?.extendedTextMessage?.contextInfo?.participant
-        if (quoted) {
-            return clearJid(quoted)
-        }
-
-        const text = getText(msg)
-        const split = text.trim().split(/\s+/)
-
-        if (split[1]) {
-            const num = split[1].replace(/\D/g, "")
-            if (num.length >= 10) {
-                return clearJid(num + "@s.whatsapp.net")
-            }
-        }
-        return null
+    const msg = message.message
+    const mention = getMentioned(msg)
+    if (mention.length) {
+        return clearJid(mention[0])
     }
-
-    // ===============================
-    // MESSAGE EVENT LISTENER
-    // ===============================
-
+    const quoted = msg?.extendedTextMessage?.contextInfo?.participant
+    if (quoted) {
+        return clearJid(quoted)
+    }
+    const text = getText(msg)
+    const parts = text.trim().split(/\s+/)
+    parts.shift() 
+    if (parts.length > 0) {
+        let num = parts.join("")
+        num = num.replace(/[^0-9]/g, "")
+        if (num.startsWith("0")) {
+            num = "62" + num.slice(1) 
+        } else if (!num.startsWith("62")) {
+            num = "62" + num 
+        }
+        if (num.length >= 11 && num.length <= 15) {
+            return clearJid(num + "@s.whatsapp.net")
+        }
+    }
+    return null
+}
     sock.ev.on("messages.upsert", async ({ messages }) => {
         try {
             const m = messages[0]
@@ -172,19 +142,14 @@ function init() {
             const body = getText(m.message)
 
             if (!body) return
-
-            // 1. BACKGROUND TASKS (Anti-Link & Anti-APK)
             const setting = getSetting(jid)
-
             if (setting.antilink &&!isMaster(sender) &&!(await isAdmin(jid, sender))) {
                 const text = body.toLowerCase()
                 const detect = text.includes("chat.whatsapp.com/") || text.includes("wa.me/") || text.includes("https://") || text.includes("http://")
-
                 if (detect && (await isBotAdmin(jid))) {
                     await sock.sendMessage(jid, { delete: m.key })
                 }
             }
-
             if (setting.antiapk &&!isMaster(sender) &&!(await isAdmin(jid, sender))) {
                 const doc = m.message?.documentMessage
                 if (doc && doc.mimetype === "application/vnd.android.package-archive") {
@@ -193,25 +158,19 @@ function init() {
                     }
                 }
             }
-
-            // 2. COMMAND EXECUTION
             if (!body.startsWith(PREFIX)) return
-
             const args = body.slice(PREFIX.length).trim().split(/\s+/)
             const cmd = args.shift().toLowerCase()
-
-            // Evaluasi Otoritas Pengguna
             const allow = await canUseCommand(jid, sender)
             if (!allow) {
-                return reply(jid, "Command khusus Admin Group & Master.", m)
+                return reply(jid, "Command khusus admin group & master.", m)
             }
-
             switch (cmd) {
                 case "kick": {
                     const target = await getTarget(m)
-                    if (!target) return reply(jid, "Reply / tag / masukkan nomor target.", m)
+                    if (!target) return reply(jid, "Reply, tag, atau masukkan nomor whatsapp.", m)
                     if (target === sender) return reply(jid, "Tidak bisa kick diri sendiri.", m)
-                    if (isMaster(target)) return reply(jid, "Target adalah Master.", m)
+                    if (isMaster(target)) return reply(jid, "Target adalah master.", m)
                     if (await isAdmin(jid, target)) return reply(jid, "Tidak bisa kick admin.", m)
                     if (!(await isBotAdmin(jid))) return reply(jid, "Bot bukan admin.", m)
 
@@ -220,12 +179,36 @@ function init() {
                 }
 
                 case "add": {
-                    if (!(await isBotAdmin(jid))) return reply(jid, "Bot bukan admin.", m)
+                    // FIX: Cek admin 1x biar cepat
+                    const botIsAdmin = await isBotAdmin(jid)
+                    if (!botIsAdmin) return reply(jid, "Bot bukan admin.", m)
                     const target = await getTarget(m)
-                    if (!target) return reply(jid, "Masukkan nomor dengan tag/reply.", m)
+                    if (!target) return reply(jid, "Masukkan nomor whatsapp yang benar.", m)
+                    if (target === clearJid(sock.user?.id) || target === clearJid(sock.user?.lid)) return reply(jid, "Gak bisa add bot sendiri.", m)
+                    await reply(jid, `Prosess add members...`, m)
+                    try {
+                        const res = await sock.groupParticipantsUpdate(jid, [target], "add")
+                        const result = res[0]
+                        if (result.status === "200") {
+                            return reply(jid, `${target.split('@')[0]} berhasil ditambahkan.`, m)
+                        }
+                        else if (result.status === "403") {
+                            return reply(jid, `Gagal, Nomor ${target.split('@')[0]} aturan privasi akun nya, "Hanya kontak yang dapat menambahkan ke group", Kirim link group saja via perintah {.linkgroup }.`, m)
+                        }
+                        else if (result.status === "401") {
+                            return reply(jid, `Gagal, nomor ${target.split('@')[0]} sudah ada di group atau pernah keluar sendiri.`, m)
+                        }
+                        else if (result.status === "404") {
+                            return reply(jid, `Gagal, nomor ${target.split('@')[0]} tidak terdaftar di WhatsApp.`, m)
+                        }
+                        else {
+                            return reply(jid, `Gagal menambahkan, Kode : ${result.status}`, m)
+                        }
 
-                    await sock.groupParticipantsUpdate(jid, [target], "add")
-                    return reply(jid, "Member berhasil ditambahkan.", m)
+                    } catch (e) {
+                        console.log("Error add:", e)
+                        return reply(jid, `error: ${e.message}`, m)
+                    }
                 }
 
                 case "promote": {
@@ -248,7 +231,6 @@ function init() {
                     await sock.groupParticipantsUpdate(jid, [target], "demote")
                     return reply(jid, "Demote berhasil.", m)
                 }
-
                 case "delete":
                 case "del": {
                     const contextInfo = m.message?.extendedTextMessage?.contextInfo
@@ -269,7 +251,7 @@ function init() {
                 }
 
                 case "help": {
-                    return reply(jid, `*Nayozu Command List*\n\n${PREFIX}help\n${PREFIX}groupinfo\n${PREFIX}members\n\n${PREFIX}kick\n${PREFIX}add\n${PREFIX}promote\n${PREFIX}demote\n${PREFIX}delete\n\n${PREFIX}antilink on/off\n${PREFIX}antiapk on/off\n\n${PREFIX}open\n${PREFIX}close\n\n${PREFIX}linkgroup\n${PREFIX}resetlink`, m)
+                    return reply(jid, `*Nayozu command helper*\n\n${PREFIX}help\n${PREFIX}groupinfo\n${PREFIX}members\n\n${PREFIX}kick\n${PREFIX}add\n${PREFIX}promote\n${PREFIX}demote\n${PREFIX}delete\n${PREFIX}antilink on/off\n${PREFIX}antiapk on/off\n${PREFIX}open\n${PREFIX}close\n${PREFIX}linkgroup\n${PREFIX}resetlink`, m)
                 }
 
                 case "groupinfo": {
@@ -277,7 +259,7 @@ function init() {
                     const setting = getSetting(jid)
                     const owner = data.metadata.owner || "-"
 
-                    return reply(jid, `*GROUP INFO*\n\nNama :\n${data.metadata.subject}\n\nID :\n${jid}\n\nMaster :\n${owner}\n\nMember :\n${data.metadata.participants.length}\n\nAdmin :\n${data.admins.length}\n\nBot admin :\n${data.botadmin? "Ya" : "Tidak"}\n\nAnti Link :\n${setting.antilink? "ON" : "OFF"}\n\nAnti APK :\n${setting.antiapk? "ON" : "OFF"}`, m)
+                    return reply(jid, `*Group info*\n\nNama :\n${data.metadata.subject}\n\nID :\n${jid}\n\n Member :\n${data.metadata.participants.length}\n\nAdmin :\n${data.admins.length}\n\nBot admin :\n${data.botadmin? "Ya" : "Tidak"}\n\nAnti Link :\n${setting.antilink? "ON" : "OFF"}\n\nAnti APK :\n${setting.antiapk? "ON" : "OFF"}`, m)
                 }
 
                 case "members": {
@@ -286,7 +268,7 @@ function init() {
                     const admin = data.admins.length
                     const member = total - admin
 
-                    return reply(jid, `*MEMBERS*\n\nTotal :\n${total}\n\nAdmin :\n${admin}\n\nMember :\n${member}`, m)
+                    return reply(jid, `*Member info*\n\nTotal :\n${total}\n\nAdmin :\n${admin}\n\nMember :\n${member}`, m)
                 }
 
                 case "antilink": {
@@ -297,16 +279,13 @@ function init() {
                     setting.antilink = opt === "on"
                     return reply(jid, `Anti Link ${setting.antilink? "diaktifkan" : "dimatikan"}.`, m)
                 }
-
                 case "antiapk": {
                     const opt = args[0]?.toLowerCase()
                     if (opt!= "on" && opt!= "off") return reply(jid, ".antiapk on/off", m)
-
                     const setting = getSetting(jid)
                     setting.antiapk = opt === "on"
                     return reply(jid, `Anti APK ${setting.antiapk? "diaktifkan" : "dimatikan"}.`, m)
                 }
-
                 case "open": {
                     if (!(await isBotAdmin(jid))) return reply(jid, "Bot bukan admin.", m)
                     await sock.groupSettingUpdate(jid, "not_announcement")
@@ -318,7 +297,6 @@ function init() {
                     await sock.groupSettingUpdate(jid, "announcement")
                     return reply(jid, "Group berhasil ditutup.", m)
                 }
-
                 case "linkgroup": {
                     if (!(await isBotAdmin(jid))) return reply(jid, "Bot bukan admin.", m)
                     const code = await sock.groupInviteCode(jid)
@@ -330,7 +308,6 @@ function init() {
                     const code = await sock.groupRevokeInvite(jid)
                     return reply(jid, `Link baru:\n\nhttps://chat.whatsapp.com/${code}`, m)
                 }
-
                 default:
                     break
             }
