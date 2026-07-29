@@ -1,10 +1,12 @@
 {
   "dependencies": {
+    "@hapi/iron": "^7.0.1",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "express": "^5.2.1",
+    "mongoose": "^9.8.1",
     "pino": "^10.3.1",
-    "pm2": "^7.0.3",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "yt-dlp-wrap": "^2.3.12"
   },
   "name": "home",
   "version": "1.0.0",
