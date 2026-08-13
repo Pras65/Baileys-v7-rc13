@@ -1,0 +1,114 @@
+[
+  {
+    "key": "ps_l",
+    "value": "1",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "datr",
+    "value": "N_ZpanCMQ5n0wVHYjeFi1S20",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "fr",
+    "value": "0m611b8kjJe8XoiHs.AWc__tohdjQpfdJnPfUq5FYc5lBXq8BLjETetBocY_x0TFLOo2c.BqafY4..AAA.0.0.Bqafow.AWf94R0KjyNj4IeL5yU6jHgOvMM",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "vpd",
+    "value": "v1%3B700x408x1.7647058823529411",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "xs",
+    "value": "46%3A1GoR23DhOz0X3g%3A2%3A1785329252%3A-1%3A-1",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "fbl_st",
+    "value": "100420117%3BT%3A29755487",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "locale",
+    "value": "id_ID",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "m_pixel_ratio",
+    "value": "1",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "c_user",
+    "value": "61592429769086",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "presence",
+    "value": "C%7B%22lm3%22%3A%22sc.2127800574783891%22%2C%22t3%22%3A%5B%5D%2C%22utc3%22%3A1785330546234%2C%22v%22%3A1%7D",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "dpr",
+    "value": "1.7647058823529411",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "pas",
+    "value": "61592429769086%3AVEswkj2ZMG",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "ps_n",
+    "value": "1",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "sb",
+    "value": "OPZpauPZhRKojCjWjeDC-kXb",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "wd",
+    "value": "980x1682",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  },
+  {
+    "key": "wl_cbv",
+    "value": "v2%3Bclient_version%3A3231%3Btimestamp%3A1785329262",
+    "domain": "facebook.com",
+    "path": "/",
+    "hostOnly": false
+  }
+]

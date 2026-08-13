@@ -1,0 +1,6 @@
+[8/11/2026, 8:56:41 PM] Error pada .tourl:
+Error: IMAGEKIT_PRIVATE_KEY belum terdaftar di database.
+    at uploadToImageKit (/home/bot/controller/imagekitUploader.js:7:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async menuController (/home/bot/controller/menuController.js:230:24)
+    at async EventEmitter.<anonymous> (/home/bot/controller/index.js:129:45)
