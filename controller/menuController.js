@@ -319,6 +319,49 @@ case 'tourl': {
     }
     break;
 }
+case 'brat': {
+    // 1. Mengambil teks setelah command (.brat teksnya di sini)
+    // Deteksi dari pesan biasa atau extended (reply)
+    const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
+    // Memisahkan kata pertama (.brat) dan mengambil sisanya
+    const textQuery = rawText.split(' ').slice(1).join(' ');
+
+    if (!textQuery) {
+        return sock.sendMessage(m.key.remoteJid, { 
+            text: 'Teksnya mana?\n*Contoh:* .brat lagi pusing banget nih' 
+        }, { quoted: m });
+    }
+
+    try {
+        await sock.sendMessage(m.key.remoteJid, { text: 'Brat diprosess...' }, { quoted: m });
+
+        const axios = require('axios');
+        
+        // 2. Memanggil API Brat (Langsung jadi bentuk Stiker WebP)
+        // Kita encodeURIComponent agar spasi dan simbol aman di URL
+        const apiUrl = `https://brat.caliphdev.com/api/brat?text=${encodeURIComponent(textQuery)}`;
+
+        // 3. Download hasil gambar hijaunya
+        const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
+        const stickerBuffer = Buffer.from(response.data);
+
+        // 4. Langsung kirim sebagai stiker!
+        await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
+
+    } catch (error) {
+        const fs = require('fs');
+        const util = require('util');
+        const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .brat:\n` + util.inspect(error, { depth: null });
+        fs.writeFileSync('r.txt', errorLog, 'utf8');
+
+        console.log(`[!] Error terjadi pada .brat, log: r.txt`);
+
+        await sock.sendMessage(m.key.remoteJid, { 
+            text: `Gagal membuat stiker brat, Server mungkin sedang sibuk.` 
+        }, { quoted: m });
+    }
+    break;
+}
 
             case 'hd':
                 break;
