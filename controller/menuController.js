@@ -182,11 +182,11 @@ case 'sticker': {
         const isImage = !!cleanMsg.imageMessage;
         if (!isImage) {
             return sock.sendMessage(m.key.remoteJid, { 
-                text: '❌ Kirim atau reply gambar dengan caption *.s*' 
+                text: ' Kirim atau reply gambar dengan caption *.sticker*' 
             }, { quoted: m });
         }
 
-        await sock.sendMessage(m.key.remoteJid, { text: '⏳ Memproses stiker via Cloud...' }, { quoted: m });
+        await sock.sendMessage(m.key.remoteJid, { text: '⏳ Diprosess...' }, { quoted: m });
 
         const targetMessageObj = isQuoted ? {
             key: {
@@ -202,7 +202,7 @@ case 'sticker': {
 
         // 1. Download dari WA
         const mediaBuffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
-        if (!mediaBuffer) throw new Error("Gagal mengunduh media dari WhatsApp.");
+        if (!mediaBuffer) throw new Error("Gagal mengunduh media dari whatsapp.");
 
         // 2. Upload ke ImageKit (Cepat karena ini cloud)
         const fileName = `stk_${Date.now()}.jpg`;
@@ -228,7 +228,7 @@ case 'sticker': {
         console.log(`[!] Error terjadi pada .s, log: r.txt`);
 
         await sock.sendMessage(m.key.remoteJid, { 
-            text: `❌ Gagal membuat stiker. Coba gunakan gambar lain.` 
+            text: ` Gagal membuat stiker, Coba gunakan gambar lain.` 
         }, { quoted: m });
     }
     break;
