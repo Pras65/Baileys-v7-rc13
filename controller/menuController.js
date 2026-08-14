@@ -4,6 +4,8 @@ const RdModel = require ('../models/RdModel');
 const { sendButtons } = require('@ryuu-reinzz/button-helper');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { uploadToImageKit } = require('./imagekitUploader'); 
+const { createBlackWhiteText } = require('./textMaker');
+
 const util = require('util');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -319,49 +321,56 @@ case 'tourl': {
     }
     break;
 }
+
 case 'brat': {
-    // 1. Mengambil teks setelah command (.brat teksnya di sini)
-    // Deteksi dari pesan biasa atau extended (reply)
     const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
-    // Memisahkan kata pertama (.brat) dan mengambil sisanya
     const textQuery = rawText.split(' ').slice(1).join(' ');
 
     if (!textQuery) {
         return sock.sendMessage(m.key.remoteJid, { 
-            text: 'Teksnya mana?\n*Contoh:* .brat lagi pusing banget nih' 
+            text: ' Teksnya mana?\n*Contoh :* .brat Hari ini capek banget' 
         }, { quoted: m });
     }
 
     try {
-        await sock.sendMessage(m.key.remoteJid, { text: 'Brat diprosess...' }, { quoted: m });
-
-        const axios = require('axios');
         
-        // 2. Memanggil API Brat (Langsung jadi bentuk Stiker WebP)
-        // Kita encodeURIComponent agar spasi dan simbol aman di URL
-        const apiUrl = `https://brat.caliphdev.com/api/brat?text=${encodeURIComponent(textQuery)}`;
+        // 1. Gambar teks jadi PNG lokal pakai Jimp (Cepat & Tanpa Python)
+        // Pastikan path ke textMaker sudah benar
+        const { createBlackWhiteText } = require('../lib/textMaker'); 
+        const imageBuffer = await createBlackWhiteText(textQuery);
 
-        // 3. Download hasil gambar hijaunya
-        const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-        const stickerBuffer = Buffer.from(response.data);
+        // 2. Lemparkan PNG ke ImageKit (Ini pengganti fungsi FFmpeg!)
+        // Pastikan path ke uploader ImageKit kamu sudah benar
+        const { uploadToImageKit } = require('./imagekitUploader'); 
+        const fileName = `txt_${Date.now()}.png`;
+        const uploadRes = await uploadToImageKit(imageBuffer, fileName);
 
-        // 4. Langsung kirim sebagai stiker!
+        // 3. Sulap URL jadi bentuk Stiker (WebP 512x512)
+        const transformedStickerUrl = uploadRes.url + "?tr=w-512,h-512,f-webp";
+
+        // 4. Download hasil WebP dari ImageKit
+        const axios = require('axios');
+        const webpResponse = await axios.get(transformedStickerUrl, { responseType: 'arraybuffer' });
+        const stickerBuffer = Buffer.from(webpResponse.data);
+
+        // 5. Kirim stiker teks elegan ke user!
         await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
 
     } catch (error) {
         const fs = require('fs');
         const util = require('util');
-        const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .brat:\n` + util.inspect(error, { depth: null });
+        const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .steks:\n` + util.inspect(error, { depth: null });
         fs.writeFileSync('r.txt', errorLog, 'utf8');
 
-        console.log(`[!] Error terjadi pada .brat, log: r.txt`);
-
+        console.log(`[!] Error terjadi pada pembuat stiker teks. Cek r.txt`);
         await sock.sendMessage(m.key.remoteJid, { 
-            text: `Gagal membuat stiker brat, Server mungkin sedang sibuk.` 
+            text: `Gagal membuat stiker brat, Terjadi kesalahan sistem.` 
         }, { quoted: m });
     }
     break;
 }
+
+
 
             case 'hd':
                 break;
