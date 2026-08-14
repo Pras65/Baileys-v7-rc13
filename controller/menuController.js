@@ -154,13 +154,86 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             break;
         }
 
+case 's':
+case 'sticker': {
+    try {
+        // 1. --- BONGKAR PESAN WHATSAPP ---
+        const unwrap = (msg) => {
+            if (!msg) return null;
+            if (msg.ephemeralMessage) return unwrap(msg.ephemeralMessage.message);
+            if (msg.viewOnceMessageV2) return unwrap(msg.viewOnceMessageV2.message);
+            if (msg.viewOnceMessageV2Extension) return unwrap(msg.viewOnceMessageV2Extension.message);
+            if (msg.viewOnceMessage) return unwrap(msg.viewOnceMessage.message);
+            if (msg.documentWithCaptionMessage) return unwrap(msg.documentWithCaptionMessage.message);
+            return msg;
+        };
 
+        const realMsg = unwrap(m.message);
+        if (!realMsg) return;
 
+        const msgTypeReal = Object.keys(realMsg)[0];
+        const contextInfo = realMsg[msgTypeReal]?.contextInfo;
+        const isQuoted = !!contextInfo?.quotedMessage;
+        const rawTargetMsg = isQuoted ? contextInfo.quotedMessage : realMsg;
+        const cleanMsg = unwrap(rawTargetMsg);
 
-            case 'sticker':
-                // Tempatkan eksekusi modul stiker Anda di sini
-                await sock.sendMessage(jid, { text: "⏳ Sedang membuat stiker..." }, { quoted: m });
-                break;
+        if (!cleanMsg) return;
+
+        // Validasi: Harus berupa Gambar
+        const isImage = !!cleanMsg.imageMessage;
+        if (!isImage) {
+            return sock.sendMessage(m.key.remoteJid, { 
+                text: 'Kirim atau reply gambar dengan caption *.s atau .sticker*' 
+            }, { quoted: m });
+        }
+
+        await sock.sendMessage(m.key.remoteJid, { text: '⏳ Prosess validasi...' }, { quoted: m });
+
+        // 2. --- DOWNLOAD MEDIA DARI WA ---
+        const targetMessageObj = isQuoted ? {
+            key: {
+                remoteJid: m.key.remoteJid,
+                id: contextInfo?.stanzaId || m.key.id,
+                participant: contextInfo?.participant || m.key.participant
+            },
+            message: cleanMsg
+        } : {
+            key: m.key,
+            message: cleanMsg
+        };
+
+        const mediaBuffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
+        if (!mediaBuffer) throw new Error("Gagal mengunduh media dari WhatsApp.");
+
+        // 3. --- UPLOAD BUKAN KEBeban VPS, TAPI LEMPAR KE IMAGEKIT ---
+        const fileName = `stk_${Date.now()}.jpg`;
+        const uploadRes = await uploadToImageKit(mediaBuffer, fileName);
+
+        // 4. --- SULAP URL DENGAN TRANSFORMASI IMAGEKIT ---
+        // Parameter 'fo-auto' = Smart Auto Focus (Memotong bagian penting foto secara pintar jadi persegi)
+        // Parameter 'f-webp' = Mengonversi otomatis jadi format Stiker WebP
+        const transformedStickerUrl = uploadRes.url.replace(
+            '/whatsapp_bot_media/', 
+            '/tr:w-512,h-512,fo-auto,f-webp/whatsapp_bot_media/'
+        );
+
+        // 5. --- DOWNLOAD BUFFER WEBP HASIL TRANSFORMASI ---
+        const webpResponse = await axios.get(transformedStickerUrl, { responseType: 'arraybuffer' });
+        const stickerBuffer = Buffer.from(webpResponse.data);
+
+        // 6. --- KIRIM STIKER BESAR & PENUH KE WHATSAPP ---
+        await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
+
+    } catch (error) {
+        const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .s:\n` + util.inspect(error, { depth: null });
+        fs.writeFileSync('r.txt', errorLog, 'utf8');
+
+        await sock.sendMessage(m.key.remoteJid, { 
+            text: `Gagal membuat stiker, Detail error telah disimpan` 
+        }, { quoted: m });
+    }
+    break;
+}
 
 case 'tourl': {
     try {
