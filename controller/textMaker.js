@@ -1,33 +1,67 @@
-const { Jimp, loadFont } = require('jimp');
-const { SANS_128_WHITE, SANS_64_WHITE, SANS_32_WHITE } = require('jimp/fonts');
+const { Jimp, loadFont, measureText } = require('jimp');
+const { SANS_64_WHITE } = require('jimp/fonts');
 
 async function createBlackWhiteText(text) {
     try {
         const image = new Jimp({ width: 512, height: 512, color: 0x000000FF });
+        
+        const font = await loadFont(SANS_64_WHITE);
+        const fontHeight = 64; 
+        const lineSpacing = 12;
 
-        // Pilih font berdasarkan panjang karakter
-        let font;
-        if (text.length < 15) {
-            font = await loadFont(SANS_128_WHITE); // Teks pendek sangat besar
-        } else if (text.length < 40) {
-            font = await loadFont(SANS_64_WHITE);  // Teks sedang
-        } else {
-            font = await loadFont(SANS_32_WHITE);  // Teks panjang
+        // Fungsi pemecah kata cerdas per 6 karakter maksimal tanpa merusak kata
+        function wrapTextByWord(str, maxCharsPerLine) {
+            const words = str.trim().split(/\s+/);
+            let lines = [];
+            let currentLine = '';
+
+            for (let word of words) {
+                if (word.length > maxCharsPerLine) {
+                    if (currentLine) {
+                        lines.push(currentLine);
+                        currentLine = '';
+                    }
+                    for (let i = 0; i < word.length; i += maxCharsPerLine) {
+                        lines.push(word.slice(i, i + maxCharsPerLine));
+                    }
+                    continue;
+                }
+
+                if ((currentLine + (currentLine ? ' ' : '') + word).length <= maxCharsPerLine) {
+                    currentLine += (currentLine ? ' ' : '') + word;
+                } else {
+                    if (currentLine) lines.push(currentLine);
+                    currentLine = word;
+                }
+            }
+            if (currentLine) lines.push(currentLine);
+            return lines;
         }
 
-        image.print({
-            font: font,
-            x: 0,
-            y: 0,
-            text: {
-                text: text,
-                // Mengatur alignment ke tengah (CENTER) dan tengah vertikal (MIDDLE)
-                alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
-                alignmentY: Jimp.VERTICAL_ALIGN_MIDDLE
-            },
-            maxWidth: 512,
-            maxHeight: 512
-        });
+        const lines = wrapTextByWord(text, 6);
+        const totalLines = lines.length;
+        
+        // Hitung tinggi total blok teks
+        const totalTextHeight = (fontHeight * totalLines) + (lineSpacing * (totalLines - 1));
+        let startY = (512 - totalTextHeight) / 2;
+
+        // Cetak tiap baris dengan mengukur lebar piksel aslinya pakai measureText bawaan Jimp
+        for (let i = 0; i < totalLines; i++) {
+            const currentY = startY + (i * (fontHeight + lineSpacing));
+            
+            // measureText menghitung lebar asli teks dalam piksel secara akurat (bebas dari masalah spasi/karakter sempit)
+            const lineWidth = measureText(font, lines[i]);
+            const currentX = (512 - lineWidth) / 2;
+
+            image.print({
+                font: font,
+                x: currentX,
+                y: currentY,
+                text: {
+                    text: lines[i]
+                }
+            });
+        }
 
         const buffer = await image.getBuffer('image/png');
         return buffer;
