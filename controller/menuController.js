@@ -15,15 +15,14 @@ const PREFIX = '.';
 
 // Daftar command dasar (Tanpa deskripsi, bersih)
 const MENU_ITEMS = [
-    { command: 'dl', category: 'Utility' },
-    { command: 'sticker', category: 'Media' },
-    { command: 's', category: 'Media' },
-    { command: 'brat', category: 'Media' },
-    { command: 'tourl', category: 'Utility' },
-    { command: 'hd', category: 'Media' },
-    { command: 'creimg', category: 'AI' },
-    { command: 'sewa', category: 'Sewa & Join' },
-    { command: 'joinorg', category: 'Sewa & Join' }
+    { command: 'dl'},
+    { command: 'sticker'},
+    { command: 'brat'},
+    { command: 'tourl'},
+    { command: 'hd' },
+    { command: 'creimg'},
+    { command: 'sewa'},
+    { command: 'joinorg'}
 ];
 
 async function menuController(sock, m, { jid, sender, body, isMaster }) {
@@ -48,32 +47,21 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
         }
     }
 
-    // === TAMPILAN MENU BERSIH & MINIMALIS (Tanpa Emoji & Tanpa Deskripsi) ===
+    // === TAMPILAN MENU BERSIH & MINIMALIS (Tanpa Kategori, Emoji, & Tanpa Deskripsi) ===
     if (cmd === "menu" || cmd === "m") {
         try {
             const dbConfigs = await MenuModel.find({});
             const disabledMap = new Map(dbConfigs.map(c => [c.command, c.isActive]));
 
-            const categorizedMenu = {};
-            MENU_ITEMS.forEach(item => {
-                if (!categorizedMenu[item.category]) categorizedMenu[item.category] = [];
-                categorizedMenu[item.category].push(item);
-            });
-
-            let menuMessage = `NAYOZU BOT\n\n`;
+            let menuMessage = `[ Nayozu bot ]\n\n`;
             menuMessage += `User: @${sender.split('@')[0]}\n\n`;
 
-            for (const category in categorizedMenu) {
-                menuMessage += `[ ${category.toUpperCase()} ]\n`;
-                
-                categorizedMenu[category].forEach((item) => {
-                    const isItemActive = disabledMap.get(item.command) !== false; 
-                    if (isItemActive) {
-                        menuMessage += `> ${PREFIX}${item.command}\n`;
-                    }
-                });
-                menuMessage += '\n'; 
-            }
+            MENU_ITEMS.forEach((item) => {
+                const isItemActive = disabledMap.get(item.command) !== false; 
+                if (isItemActive) {
+                    menuMessage += `> ${PREFIX}${item.command}\n`;
+                }
+            });
 
             await sock.sendMessage(jid, { 
                 text: menuMessage.trim(), 
@@ -96,23 +84,23 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
         case "dl": {
             const url = args[0]
             if (!url) {
-                return sock.sendMessage(jid, { text: "Format salah. Contoh: .dl <link>" }, { quoted: m });
+                return sock.sendMessage(jid, { text: "Format salah, Contoh : .dl <link>" }, { quoted: m });
             }
             if (!/facebook|tiktok|instagram|youtube|youtu\.be/.test(url.toLowerCase())) {
                 return sock.sendMessage(jid, { text: "Link tidak didukung." }, { quoted: m });
             }
 
-            await sock.sendMessage(jid, { text: "Mengunduh media..." }, { quoted: m });
+            await sock.sendMessage(jid, { text: "Diproses, Estimasi 1-5 menit..." }, { quoted: m });
 
             try {
                 const data = await downloadVideo(url) 
                 
-                const caption = `[ DOWNLOADER ]\n\n` +
-                    `Title: ${data.title}\n`+
-                    `Uploader: ${data.uploader}\n` +
-                    `Duration: ${data.duration}\n` +
-                    `Resolution: ${data.resolution}\n` +
-                    `Size: ${data.size}` 
+                const caption = `[ Berhasil ]\n` +
+                    `[ Title ] : ${data.title}\n\n`+
+                    `[ Uploader ] : ${data.uploader}\n` +
+                    `[ Durasi ] : ${data.duration}\n` +
+                    `[ Resolusi ] : ${data.resolution}\n` +
+                    `[ Size ] : ${data.size}` 
 
                 await sock.sendMessage(jid, {
                     video: { url: data.path }, 
@@ -124,7 +112,7 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
 
             } catch(e) {
                 console.log("Error :", e.message)
-                return sock.sendMessage(jid, { text: `Gagal mengunduh: ${e.message}` }, { quoted: m });
+                return sock.sendMessage(jid, { text: `Gagal mengunduh : ${e.message}` }, { quoted: m });
             }
             break;
         }
@@ -259,9 +247,7 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             break;
         }
 
-        case 'brat':
-        case 'txt':
-        case 'steks': {
+                case 'brat':{
             const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
             const textQuery = rawText.split(' ').slice(1).join(' ');
 
@@ -269,13 +255,16 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
                 return sock.sendMessage(m.key.remoteJid, { text: 'Masukkan teks. Contoh: .brat Halo' }, { quoted: m });
             }
 
-            try {
-                await sock.sendMessage(m.key.remoteJid, { text: 'Membuat stiker teks...' }, { quoted: m });
+            // Validasi: Maksimal 18 karakter
+            if (textQuery.length > 18) {
+                return sock.sendMessage(m.key.remoteJid, { text: 'Teks terlalu panjang, maks 18 karakter jangan pakai spasi.' }, { quoted: m });
+            }
 
+            try {
                 const imageBuffer = await createBlackWhiteText(textQuery);
                 const fileName = `txt_${Date.now()}.png`;
                 const uploadRes = await uploadToImageKit(imageBuffer, fileName);
-                const transformedStickerUrl = uploadRes.url + "?tr=w-512,h-512,f-webp";
+                const transformedStickerUrl = uploadRes.url + "?tr=w-612,h-612,f-webp";
 
                 const webpResponse = await axios.get(transformedStickerUrl, { responseType: 'arraybuffer' });
                 const stickerBuffer = Buffer.from(webpResponse.data);
@@ -285,10 +274,11 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             } catch (error) {
                 const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada teks stiker:\n` + util.inspect(error, { depth: null });
                 fs.writeFileSync('r.txt', errorLog, 'utf8');
-                await sock.sendMessage(m.key.remoteJid, { text: `Gagal membuat stiker teks.` }, { quoted: m });
+                await sock.sendMessage(m.key.remoteJid, { text: `Gagal membuat brat.` }, { quoted: m });
             }
             break;
         }
+
 
         case 'hd':
             break;
@@ -297,7 +287,7 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             
         case 'sewa':
             await sendButtons(sock, jid, {
-                title: 'SEWA BOT',
+                title: '[ *Sewa bot* ]',
                 text: 'Hubungi moderator untuk informasi lebih lanjut.',
                 footer: 'Nayozu',
                 buttons: [
