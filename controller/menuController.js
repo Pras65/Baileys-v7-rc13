@@ -157,7 +157,6 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
 case 's':
 case 'sticker': {
     try {
-        // 1. --- BONGKAR PESAN WHATSAPP ---
         const unwrap = (msg) => {
             if (!msg) return null;
             if (msg.ephemeralMessage) return unwrap(msg.ephemeralMessage.message);
@@ -179,17 +178,16 @@ case 'sticker': {
 
         if (!cleanMsg) return;
 
-        // Validasi: Harus berupa Gambar
+        // Validasi: Pastikan berupa Gambar
         const isImage = !!cleanMsg.imageMessage;
         if (!isImage) {
             return sock.sendMessage(m.key.remoteJid, { 
-                text: 'Kirim atau reply gambar dengan caption *.s atau .sticker*' 
+                text: '❌ Kirim atau reply gambar dengan caption *.s*' 
             }, { quoted: m });
         }
 
-        await sock.sendMessage(m.key.remoteJid, { text: '⏳ Prosess validasi...' }, { quoted: m });
+        await sock.sendMessage(m.key.remoteJid, { text: '⏳ Memproses stiker via Cloud...' }, { quoted: m });
 
-        // 2. --- DOWNLOAD MEDIA DARI WA ---
         const targetMessageObj = isQuoted ? {
             key: {
                 remoteJid: m.key.remoteJid,
@@ -202,38 +200,40 @@ case 'sticker': {
             message: cleanMsg
         };
 
+        // 1. Download dari WA
         const mediaBuffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
         if (!mediaBuffer) throw new Error("Gagal mengunduh media dari WhatsApp.");
 
-        // 3. --- UPLOAD BUKAN KEBeban VPS, TAPI LEMPAR KE IMAGEKIT ---
+        // 2. Upload ke ImageKit (Cepat karena ini cloud)
         const fileName = `stk_${Date.now()}.jpg`;
         const uploadRes = await uploadToImageKit(mediaBuffer, fileName);
 
-        // 4. --- SULAP URL DENGAN TRANSFORMASI IMAGEKIT ---
-        // Parameter 'fo-auto' = Smart Auto Focus (Memotong bagian penting foto secara pintar jadi persegi)
-        // Parameter 'f-webp' = Mengonversi otomatis jadi format Stiker WebP
-        const transformedStickerUrl = uploadRes.url.replace(
-            '/whatsapp_bot_media/', 
-            '/tr:w-512,h-512,fo-auto,f-webp/whatsapp_bot_media/'
-        );
+        // 3. PERBAIKAN: Gunakan parameter "?tr=" di akhir URL. (Pasti jalan walau folder beda)
+        const transformedStickerUrl = uploadRes.url + "?tr=w-512,h-512,fo-auto,f-webp";
 
-        // 5. --- DOWNLOAD BUFFER WEBP HASIL TRANSFORMASI ---
+        // 4. PERBAIKAN: Panggil axios secara langsung di sini
+        const axios = require('axios');
         const webpResponse = await axios.get(transformedStickerUrl, { responseType: 'arraybuffer' });
         const stickerBuffer = Buffer.from(webpResponse.data);
 
-        // 6. --- KIRIM STIKER BESAR & PENUH KE WHATSAPP ---
+        // 5. Kirim Stiker Kotak Sempurna ke WA
         await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
 
     } catch (error) {
+        const fs = require('fs');
+        const util = require('util');
         const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .s:\n` + util.inspect(error, { depth: null });
         fs.writeFileSync('r.txt', errorLog, 'utf8');
 
+        console.log(`[!] Error terjadi pada .s, log: r.txt`);
+
         await sock.sendMessage(m.key.remoteJid, { 
-            text: `Gagal membuat stiker, Detail error telah disimpan` 
+            text: `❌ Gagal membuat stiker. Coba gunakan gambar lain.` 
         }, { quoted: m });
     }
     break;
 }
+
 
 case 'tourl': {
     try {
