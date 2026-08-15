@@ -1,21 +1,24 @@
 const { Jimp, loadFont, measureText } = require('jimp');
-const { SANS_64_WHITE } = require('jimp/fonts');
+const { SANS_128_BLACK } = require('jimp/fonts'); // Menggunakan font warna hitam ukuran 128
 
 async function createBlackWhiteText(text) {
     try {
-        const image = new Jimp({ width: 512, height: 512, color: 0x000000FF });
+        // Background putih murni
+        const image = new Jimp({ width: 512, height: 512, color: 0xFFFFFFFF });
         
-        const font = await loadFont(SANS_64_WHITE);
-        const fontHeight = 64; 
-        const lineSpacing = 12;
+        // Meload font raksasa 128 warna hitam
+        const font = await loadFont(SANS_128_BLACK);
+        const fontHeight = 128; // Tinggi disesuaikan dengan font
+        const lineSpacing = 16; // Jarak antar baris disesuaikan agar tidak terlalu renggang
 
-        // Fungsi pemecah kata cerdas per 6 karakter maksimal tanpa merusak kata
+        // FUNGSI PEMECAH KATA CERDAS (Spasi aman, tidak merusak hitungan)
         function wrapTextByWord(str, maxCharsPerLine) {
             const words = str.trim().split(/\s+/);
             let lines = [];
             let currentLine = '';
 
             for (let word of words) {
+                // Jika kata tunggal kepanjangan, potong paksa
                 if (word.length > maxCharsPerLine) {
                     if (currentLine) {
                         lines.push(currentLine);
@@ -27,8 +30,12 @@ async function createBlackWhiteText(text) {
                     continue;
                 }
 
-                if ((currentLine + (currentLine ? ' ' : '') + word).length <= maxCharsPerLine) {
-                    currentLine += (currentLine ? ' ' : '') + word;
+                // Hitung panjang baris saat ini jika ditambah kata baru (mengabaikan spasi sebagai beban batas)
+                const testLine = currentLine ? currentLine + ' ' + word : word;
+                
+                // Batas dihitung berdasarkan panjang huruf murni per baris agar tidak mudah kepotong
+                if (testLine.length <= maxCharsPerLine + 2) { 
+                    currentLine = testLine;
                 } else {
                     if (currentLine) lines.push(currentLine);
                     currentLine = word;
@@ -38,18 +45,19 @@ async function createBlackWhiteText(text) {
             return lines;
         }
 
+        // Batasi 6 karakter per baris agar font 128 tidak meluber ke luar batas lebar 512
         const lines = wrapTextByWord(text, 6);
         const totalLines = lines.length;
         
-        // Hitung tinggi total blok teks
+        // Hitung total tinggi teks untuk mencari posisi tengah vertikal
         const totalTextHeight = (fontHeight * totalLines) + (lineSpacing * (totalLines - 1));
         let startY = (512 - totalTextHeight) / 2;
 
-        // Cetak tiap baris dengan mengukur lebar piksel aslinya pakai measureText bawaan Jimp
+        // Cetak baris per baris
         for (let i = 0; i < totalLines; i++) {
             const currentY = startY + (i * (fontHeight + lineSpacing));
             
-            // measureText menghitung lebar asli teks dalam piksel secara akurat (bebas dari masalah spasi/karakter sempit)
+            // Hitung lebar pasti dari baris ini untuk diposisikan di tengah horizontal
             const lineWidth = measureText(font, lines[i]);
             const currentX = (512 - lineWidth) / 2;
 
@@ -63,6 +71,7 @@ async function createBlackWhiteText(text) {
             });
         }
 
+        // Ekspor ke buffer PNG agar bisa dikonversi oleh wa-sticker-formatter
         const buffer = await image.getBuffer('image/png');
         return buffer;
     } catch (err) {

@@ -5,7 +5,7 @@ const { sendButtons } = require('@ryuu-reinzz/button-helper');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { uploadToImageKit } = require('./imagekitUploader'); 
 const { createBlackWhiteText } = require('./textMaker');
-
+const { Sticker } = require('wa-sticker-formatter');
 const util = require('util');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -120,6 +120,23 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
         case 's':
         case 'sticker': {
             try {
+                // --- 1. AMBIL TEKS / CAPTION UNTUK CUSTOM AUTHOR ---
+                const rawText = m.message?.conversation || 
+                                m.message?.imageMessage?.caption || 
+                                m.message?.extendedTextMessage?.text || 
+                                "";
+                
+                let customAuthor = 'Whatsapp'; // Default author
+
+                // Jika di teks ada tanda '+', ambil kata setelahnya
+                if (rawText.includes('+')) {
+                    const parsedText = rawText.substring(rawText.indexOf('+') + 1).trim();
+                    if (parsedText) {
+                        customAuthor = parsedText; // Timpa default author dengan teks user
+                    }
+                }
+
+                // --- 2. LOGIKA EKSTRAK PESAN MEDIA ---
                 const unwrap = (msg) => {
                     if (!msg) return null;
                     if (msg.ephemeralMessage) return unwrap(msg.ephemeralMessage.message);
@@ -144,11 +161,9 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
                 const isImage = !!cleanMsg.imageMessage;
                 if (!isImage) {
                     return sock.sendMessage(m.key.remoteJid, { 
-                        text: 'Kirim atau reply gambar dengan caption .sticker' 
+                        text: 'Reply atau kirim gambar dengan caption .sticker' 
                     }, { quoted: m });
                 }
-
-                await sock.sendMessage(m.key.remoteJid, { text: 'Memproses stiker...' }, { quoted: m });
 
                 const targetMessageObj = isQuoted ? {
                     key: {
@@ -163,14 +178,20 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
                 };
 
                 const mediaBuffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
-                if (!mediaBuffer) throw new Error("Gagal mengunduh media.");
+                if (!mediaBuffer) throw new Error("[ Gagal ]");
 
-                const fileName = `stk_${Date.now()}.jpg`;
-                const uploadRes = await uploadToImageKit(mediaBuffer, fileName);
-                const transformedStickerUrl = uploadRes.url + "?tr=w-512,h-512,fo-auto,f-webp";
+                // --- 3. PROSES PEMBUATAN STIKER LOKAL ---
+                const { Sticker } = require('wa-sticker-formatter');
+                const sticker = new Sticker(mediaBuffer, {
+                    pack: '',
+                    author: customAuthor, 
+                    type: 'crop',
+                    categories: ['☆'],
+                    id: '12345',
+                    quality: 50
+                });
 
-                const webpResponse = await axios.get(transformedStickerUrl, { responseType: 'arraybuffer' });
-                const stickerBuffer = Buffer.from(webpResponse.data);
+                const stickerBuffer = await sticker.toBuffer();
 
                 await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
 
@@ -247,37 +268,50 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             break;
         }
 
-                case 'brat':{
+        case 'brat': {
             const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
             const textQuery = rawText.split(' ').slice(1).join(' ');
 
             if (!textQuery) {
-                return sock.sendMessage(m.key.remoteJid, { text: 'Masukkan teks. Contoh: .brat Halo' }, { quoted: m });
+                return sock.sendMessage(m.key.remoteJid, { text: 'Masukkan teks, .brat Halo' }, { quoted: m });
             }
 
-            // Validasi: Maksimal 18 karakter
-            if (textQuery.length > 18) {
-                return sock.sendMessage(m.key.remoteJid, { text: 'Teks terlalu panjang, maks 18 karakter jangan pakai spasi.' }, { quoted: m });
+            // Validasi: Maksimal 18 karakter (Spasi tidak dihitung)
+            const textWithoutSpaces = textQuery.replace(/\s/g, '');
+            if (textWithoutSpaces.length > 18) {
+                return sock.sendMessage(m.key.remoteJid, { text: 'Teks terlalu panjang, Maks 18 karakter (spasi tidak dihitung).' }, { quoted: m });
             }
 
             try {
-                const imageBuffer = await createBlackWhiteText(textQuery);
-                const fileName = `txt_${Date.now()}.png`;
-                const uploadRes = await uploadToImageKit(imageBuffer, fileName);
-                const transformedStickerUrl = uploadRes.url + "?tr=w-612,h-612,f-webp";
+                // 1. Buat gambar teks jadi buffer PNG pakai Jimp lokal
+                const pngBuffer = await createBlackWhiteText(textQuery);
 
-                const webpResponse = await axios.get(transformedStickerUrl, { responseType: 'arraybuffer' });
-                const stickerBuffer = Buffer.from(webpResponse.data);
+                // 2. Konversi buffer PNG ke WebP Stiker menggunakan wa-sticker-formatter
+                // (Catatan: Pastikan require ini sudah ada di paling atas file menuController.js ya)
+                const { Sticker } = require('wa-sticker-formatter'); 
+                const sticker = new Sticker(pngBuffer, {
+                    pack: 'Nayozu bot',
+                    author: 'Whatsapp',
+                    type: 'full', // atau 'crop'
+                    categories: ['☆'],
+                    id: '12345',
+                    quality: 50
+                });
 
+                const stickerBuffer = await sticker.toBuffer();
+
+                // 3. Kirim ke WhatsApp
                 await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
 
             } catch (error) {
-                const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada teks stiker:\n` + util.inspect(error, { depth: null });
+                const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .brat:\n` + util.inspect(error, { depth: null });
                 fs.writeFileSync('r.txt', errorLog, 'utf8');
                 await sock.sendMessage(m.key.remoteJid, { text: `Gagal membuat brat.` }, { quoted: m });
             }
             break;
         }
+
+
 
 
         case 'hd':
