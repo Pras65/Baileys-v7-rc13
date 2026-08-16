@@ -53,18 +53,23 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             const dbConfigs = await MenuModel.find({});
             const disabledMap = new Map(dbConfigs.map(c => [c.command, c.isActive]));
 
-            let menuMessage = `[ Nayozu bot ]\n\n`;
-            menuMessage += `User: @${sender.split('@')[0]}\n\n`;
+            let menuMessage = `╭───⟡ *Nayozu bot* ⟡───\n`;
+            menuMessage += `│ \n`;
+            menuMessage += `│ ⋄ Hai @${sender.split('@')[0]}\n`;
+            menuMessage += `│ \n`;
 
             MENU_ITEMS.forEach((item) => {
                 const isItemActive = disabledMap.get(item.command) !== false; 
                 if (isItemActive) {
-                    menuMessage += `> ${PREFIX}${item.command}\n`;
+                    menuMessage += `│ ⋄ ${PREFIX}${item.command}\n`;
                 }
             });
 
+            menuMessage += `│ \n`;
+            menuMessage += `╰───────────────⟡`;
+
             await sock.sendMessage(jid, { 
-                text: menuMessage.trim(), 
+                text: menuMessage, 
                 mentions: [sender] 
             }, { quoted: m });
             
@@ -287,7 +292,6 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
                 const pngBuffer = await createBlackWhiteText(textQuery);
 
                 // 2. Konversi buffer PNG ke WebP Stiker menggunakan wa-sticker-formatter
-                // (Catatan: Pastikan require ini sudah ada di paling atas file menuController.js ya)
                 const { Sticker } = require('wa-sticker-formatter'); 
                 const sticker = new Sticker(pngBuffer, {
                     pack: 'Nayozu bot',
@@ -310,9 +314,6 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
             }
             break;
         }
-
-
-
 
         case 'hd':
             break;
