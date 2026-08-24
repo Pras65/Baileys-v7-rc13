@@ -1,19 +1,14 @@
 const { generateWAMessageFromContent, proto } = require('baileys');
 const MenuModel = require('../models/MenuModel');
-const RdModel = require ('../models/RdModel');
 const { sendButtons } = require('@ryuu-reinzz/button-helper');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { uploadToImageKit } = require('./imagekitUploader'); 
 const { createBlackWhiteText } = require('./textMaker');
-const { Sticker } = require('wa-sticker-formatter');
-const util = require('util');
-const axios = require('axios');
-const FormData = require('form-data');
-const { downloadVideo, deleteFile, getInfo } = require('./ytdlp.js');
-const fs = require('fs');
+const { downloadVideo, deleteFile } = require('./ytdlp.js');
+const { unwrapMessage, getText} = require('./utils');
+const { createVideoSticker } = require('./ffmpeg'); 
 const PREFIX = '.'; 
 
-// Daftar command dasar (Tanpa deskripsi, bersih)
 const MENU_ITEMS = [
     { command: 'dl'},
     { command: 'sticker'},
@@ -37,317 +32,205 @@ async function menuController(sock, m, { jid, sender, body, isMaster }) {
         try {
             const menuConfig = await MenuModel.findOne({ command: cmd });
             if (menuConfig && !menuConfig.isActive && !isMaster) {
-                await sock.sendMessage(jid, { 
-                    text: `Command ${PREFIX}${cmd} dinonaktifkan.` 
-                }, { quoted: m });
+                await sock.sendMessage(jid, { text: `Command ${PREFIX}${cmd} dinonaktifkan.` }, { quoted: m });
                 return true; 
             }
-        } catch (err) {
-            console.error("Gagal cek realtime database:", err);
-        }
+        } catch (err) {}
     }
 
-    // === TAMPILAN MENU BERSIH & MINIMALIS (Tanpa Kategori, Emoji, & Tanpa Deskripsi) ===
     if (cmd === "menu" || cmd === "m") {
         try {
             const dbConfigs = await MenuModel.find({});
             const disabledMap = new Map(dbConfigs.map(c => [c.command, c.isActive]));
 
-            let menuMessage = `╭───⟡ *Nayozu bot* ⟡───\n`;
-            menuMessage += `│ \n`;
-            menuMessage += `│ ⋄ Hai @${sender.split('@')[0]}\n`;
-            menuMessage += `│ \n`;
+       let menuMessage = `╭───⟡ [ *Nayozu bot* ] ⟡───\n`;
+            menuMessage += `│ *_Hai user_* @${sender.split('@')[0]}\n\n`;
 
             MENU_ITEMS.forEach((item) => {
-                const isItemActive = disabledMap.get(item.command) !== false; 
-                if (isItemActive) {
-                    menuMessage += `│ ⋄ ${PREFIX}${item.command}\n`;
+                if (disabledMap.get(item.command) !== false) {
+                   menuMessage += `├・ ${item.command}\n`;
                 }
             });
+            menuMessage += `╰────────────────⟡`;
 
-            menuMessage += `│ \n`;
-            menuMessage += `╰───────────────⟡`;
-
-            await sock.sendMessage(jid, { 
-                text: menuMessage, 
-                mentions: [sender] 
-            }, { quoted: m });
-            
+            await sock.sendMessage(jid, { text: menuMessage, mentions: [sender] }, { quoted: m });
             return true;
         } catch (e) {
-            console.error("Gagal memuat menu:", e);
             return false;
         }
     }
 
-    // === EKSEKUSI SUB-MENU ===
     const matchedMenu = MENU_ITEMS.find(item => item.command === cmd);
-    
-    // Membuka akses untuk command utama dan aliasnya (s, brat, txt, steks)
     if (matchedMenu || ['s', 'sticker', 'brat', 'txt', 'steks'].includes(cmd)) {
         switch (cmd) {
-        case "dl": {
-            const url = args[0]
-            if (!url) {
-                return sock.sendMessage(jid, { text: "Format salah, Contoh : .dl <link>" }, { quoted: m });
+            case "dl": {
+                const url = args[0];
+                if (!url) return sock.sendMessage(jid, { text: "Format salah, Contoh : .dl <link>" }, { quoted: m });
+                if (!/facebook|tiktok|instagram|youtube|youtu\.be/.test(url.toLowerCase())) {
+                    return sock.sendMessage(jid, { text: "Link tidak didukung." }, { quoted: m });
+                }
+
+                await sock.sendMessage(jid, { text: "Diproses, Estimasi 1-5 menit..." }, { quoted: m });
+                try {
+                    const data = await downloadVideo(url);
+                    const caption = `[ Berhasil ]\n[ Title ] : ${data.title}\n[ Size ] : ${data.size}`;
+                    await sock.sendMessage(jid, { video: { url: data.path }, caption, mimetype: 'video/mp4' }, { quoted: m });
+                    deleteFile(data.path);
+                } catch(e) {
+                    return sock.sendMessage(jid, { text: `Gagal mengunduh : ${e.message}` }, { quoted: m });
+                }
+                break;
             }
-            if (!/facebook|tiktok|instagram|youtube|youtu\.be/.test(url.toLowerCase())) {
-                return sock.sendMessage(jid, { text: "Link tidak didukung." }, { quoted: m });
-            }
 
-            await sock.sendMessage(jid, { text: "Diproses, Estimasi 1-5 menit..." }, { quoted: m });
+            case 's':
+            case 'sticker': {
+                try {
+                    const realMsg = unwrapMessage(m.message);
+                    if (!realMsg) return;
+                    
+                    const msgTypeReal = Object.keys(realMsg)[0];
+                    const contextInfo = realMsg[msgTypeReal]?.contextInfo;
+                    const isQuoted = !!contextInfo?.quotedMessage;
+                    const cleanMsg = unwrapMessage(isQuoted ? contextInfo.quotedMessage : realMsg);
+                    
+                    const isImage = !!cleanMsg?.imageMessage;
+                    const isVideo = !!cleanMsg?.videoMessage;
 
-            try {
-                const data = await downloadVideo(url) 
-                
-                const caption = `[ Berhasil ]\n` +
-                    `[ Title ] : ${data.title}\n\n`+
-                    `[ Uploader ] : ${data.uploader}\n` +
-                    `[ Durasi ] : ${data.duration}\n` +
-                    `[ Resolusi ] : ${data.resolution}\n` +
-                    `[ Size ] : ${data.size}` 
-
-                await sock.sendMessage(jid, {
-                    video: { url: data.path }, 
-                    caption: caption,
-                    mimetype: 'video/mp4'
-                }, { quoted: m })
-
-                deleteFile(data.path) 
-
-            } catch(e) {
-                console.log("Error :", e.message)
-                return sock.sendMessage(jid, { text: `Gagal mengunduh : ${e.message}` }, { quoted: m });
-            }
-            break;
-        }
-
-        case 's':
-        case 'sticker': {
-            try {
-                // --- 1. AMBIL TEKS / CAPTION UNTUK CUSTOM AUTHOR ---
-                const rawText = m.message?.conversation || 
-                                m.message?.imageMessage?.caption || 
-                                m.message?.extendedTextMessage?.text || 
-                                "";
-                
-                let customAuthor = 'Whatsapp'; // Default author
-
-                // Jika di teks ada tanda '+', ambil kata setelahnya
-                if (rawText.includes('+')) {
-                    const parsedText = rawText.substring(rawText.indexOf('+') + 1).trim();
-                    if (parsedText) {
-                        customAuthor = parsedText; // Timpa default author dengan teks user
+                    if (!isImage && !isVideo) {
+                        return sock.sendMessage(jid, { text: 'Reply atau kirim gambar/video (maks 14 detik) dengan caption .s/.sticker' }, { quoted: m });
                     }
-                }
 
-                // --- 2. LOGIKA EKSTRAK PESAN MEDIA ---
-                const unwrap = (msg) => {
-                    if (!msg) return null;
-                    if (msg.ephemeralMessage) return unwrap(msg.ephemeralMessage.message);
-                    if (msg.viewOnceMessageV2) return unwrap(msg.viewOnceMessageV2.message);
-                    if (msg.viewOnceMessageV2Extension) return unwrap(msg.viewOnceMessageV2Extension.message);
-                    if (msg.viewOnceMessage) return unwrap(msg.viewOnceMessage.message);
-                    if (msg.documentWithCaptionMessage) return unwrap(msg.documentWithCaptionMessage.message);
-                    return msg;
-                };
-
-                const realMsg = unwrap(m.message);
-                if (!realMsg) return;
-
-                const msgTypeReal = Object.keys(realMsg)[0];
-                const contextInfo = realMsg[msgTypeReal]?.contextInfo;
-                const isQuoted = !!contextInfo?.quotedMessage;
-                const rawTargetMsg = isQuoted ? contextInfo.quotedMessage : realMsg;
-                const cleanMsg = unwrap(rawTargetMsg);
-
-                if (!cleanMsg) return;
-
-                const isImage = !!cleanMsg.imageMessage;
-                if (!isImage) {
-                    return sock.sendMessage(m.key.remoteJid, { 
-                        text: 'Reply atau kirim gambar dengan caption .sticker' 
-                    }, { quoted: m });
-                }
-
-                const targetMessageObj = isQuoted ? {
-                    key: {
-                        remoteJid: m.key.remoteJid,
-                        id: contextInfo?.stanzaId || m.key.id,
-                        participant: contextInfo?.participant || m.key.participant
-                    },
-                    message: cleanMsg
-                } : {
-                    key: m.key,
-                    message: cleanMsg
-                };
-
-                const mediaBuffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
-                if (!mediaBuffer) throw new Error("[ Gagal ]");
-
-                // --- 3. PROSES PEMBUATAN STIKER LOKAL ---
-                const { Sticker } = require('wa-sticker-formatter');
-                const sticker = new Sticker(mediaBuffer, {
-                    pack: '',
-                    author: customAuthor, 
-                    type: 'crop',
-                    categories: ['☆'],
-                    id: '12345',
-                    quality: 50
-                });
-
-                const stickerBuffer = await sticker.toBuffer();
-
-                await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
-
-            } catch (error) {
-                const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .s:\n` + util.inspect(error, { depth: null });
-                fs.writeFileSync('r.txt', errorLog, 'utf8');
-                await sock.sendMessage(m.key.remoteJid, { text: `Gagal membuat stiker.` }, { quoted: m });
-            }
-            break;
-        }
-
-        case 'tourl': {
-            try {
-                const unwrap = (msg) => {
-                    if (!msg) return null;
-                    if (msg.ephemeralMessage) return unwrap(msg.ephemeralMessage.message);
-                    if (msg.viewOnceMessageV2) return unwrap(msg.viewOnceMessageV2.message);
-                    if (msg.viewOnceMessageV2Extension) return unwrap(msg.viewOnceMessageV2Extension.message);
-                    if (msg.viewOnceMessage) return unwrap(msg.viewOnceMessage.message);
-                    if (msg.documentWithCaptionMessage) return unwrap(msg.documentWithCaptionMessage.message);
-                    return msg;
-                };
-
-                const realMsg = unwrap(m.message);
-                if (!realMsg) return;
-
-                const msgTypeReal = Object.keys(realMsg)[0];
-                const contextInfo = realMsg[msgTypeReal]?.contextInfo;
-                const isQuoted = !!contextInfo?.quotedMessage;
-                const rawTargetMsg = isQuoted ? contextInfo.quotedMessage : realMsg;
-                const cleanMsg = unwrap(rawTargetMsg);
-                if (!cleanMsg) return;
-
-                const validMediaTypes = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage', 'ptvMessage'];
-                const msgType = Object.keys(cleanMsg).find(key => validMediaTypes.includes(key));
-
-                if (!msgType) {
-                    return sock.sendMessage(m.key.remoteJid, { text: 'Kirim atau reply media dengan .tourl' }, { quoted: m });
-                }
-
-                await sock.sendMessage(m.key.remoteJid, { text: 'Mengunggah...' }, { quoted: m });
-
-                const targetMessageObj = isQuoted ? {
-                    key: {
-                        remoteJid: m.key.remoteJid,
-                        id: contextInfo?.stanzaId || m.key.id,
-                        participant: contextInfo?.participant || m.key.participant
-                    },
-                    message: cleanMsg
-                } : {
-                    key: m.key,
-                    message: cleanMsg
-                };
-
-                const buffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
-                if (!buffer) throw new Error("Gagal mengunduh media.");
-
-                const mime = cleanMsg[msgType]?.mimetype || 'application/octet-stream';
-                let ext = mime.split('/')[1]?.split(';')[0] || 'bin';
-                if (msgType === 'stickerMessage') ext = 'webp';
-                
-                const fileName = `media_${Date.now()}.${ext}`;
-                const result = await uploadToImageKit(buffer, fileName);
-
-                await sock.sendMessage(m.key.remoteJid, { 
-                    text: `URL: ${result.url}\nSize: ${result.size} MB` 
-                }, { quoted: m });
-
-            } catch (error) {
-                const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .tourl:\n` + util.inspect(error, { depth: null });
-                fs.writeFileSync('r.txt', errorLog, 'utf8');
-                await sock.sendMessage(m.key.remoteJid, { text: `Gagal mengunggah.` }, { quoted: m });
-            }
-            break;
-        }
-
-        case 'brat': {
-            const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
-            const textQuery = rawText.split(' ').slice(1).join(' ');
-
-            if (!textQuery) {
-                return sock.sendMessage(m.key.remoteJid, { text: 'Masukkan teks, .brat Halo' }, { quoted: m });
-            }
-
-            // Validasi: Maksimal 18 karakter (Spasi tidak dihitung)
-            const textWithoutSpaces = textQuery.replace(/\s/g, '');
-            if (textWithoutSpaces.length > 18) {
-                return sock.sendMessage(m.key.remoteJid, { text: 'Teks terlalu panjang, Maks 18 karakter (spasi tidak dihitung).' }, { quoted: m });
-            }
-
-            try {
-                // 1. Buat gambar teks jadi buffer PNG pakai Jimp lokal
-                const pngBuffer = await createBlackWhiteText(textQuery);
-
-                // 2. Konversi buffer PNG ke WebP Stiker menggunakan wa-sticker-formatter
-                const { Sticker } = require('wa-sticker-formatter'); 
-                const sticker = new Sticker(pngBuffer, {
-                    pack: 'Nayozu bot',
-                    author: 'Whatsapp',
-                    type: 'full', // atau 'crop'
-                    categories: ['☆'],
-                    id: '12345',
-                    quality: 50
-                });
-
-                const stickerBuffer = await sticker.toBuffer();
-
-                // 3. Kirim ke WhatsApp
-                await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
-
-            } catch (error) {
-                const errorLog = `[${new Date().toLocaleString('id-ID')}] Error pada .brat:\n` + util.inspect(error, { depth: null });
-                fs.writeFileSync('r.txt', errorLog, 'utf8');
-                await sock.sendMessage(m.key.remoteJid, { text: `Gagal membuat brat.` }, { quoted: m });
-            }
-            break;
-        }
-
-        case 'hd':
-            break;
-        case 'creimg':
-            break;
-            
-        case 'sewa':
-            await sendButtons(sock, jid, {
-                title: '[ *Sewa bot* ]',
-                text: 'Hubungi moderator untuk informasi lebih lanjut.',
-                footer: 'Nayozu',
-                buttons: [
-                    { 
-                        name: 'cta_url',
-                        buttonParamsJson: JSON.stringify({
-                            display_text: 'Chat Moderator',
-                            url: 'https://wa.me/6285764554290',
-                            merchant_url: 'https://wa.me/6285764554290'
-                        })
+                    if (isVideo && cleanMsg.videoMessage.seconds > 14) {
+                        return sock.sendMessage(jid, { text: 'Kepanjangan, maks 14 detik' }, { quoted: m });
                     }
-                ]
-            }, { 
-                generateWAMessageFromContent, 
-                proto, 
-                quoted: m 
-            });
-            break;
 
-        case 'joinorg':
-            break;
+                    const targetMessageObj = isQuoted ? {
+                        key: { remoteJid: jid, id: contextInfo?.stanzaId || m.key.id, participant: contextInfo?.participant },
+                        message: cleanMsg
+                    } : { key: m.key, message: cleanMsg };
+
+                    if (isVideo) {
+                        await sock.sendMessage(jid, { text: 'Diproses, konversi est 1-3 menit.' }, { quoted: m });
+                    }
+
+                    const mediaBuffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
+                    if (!mediaBuffer) throw new Error("Gagal mengunduh media dari WhatsApp.");
+
+                    if (mediaBuffer.length > 5 * 1024 * 1024) {
+                        return sock.sendMessage(jid, { text: "Ukuran file terlalu besar (Maks 5MB)." }, { quoted: m });
+                    }
+
+                    const rawText = body || "";
+                    let customAuthor = 'Whatsapp';
+                    if (rawText.includes('+')) {
+                        const parsed = rawText.substring(rawText.indexOf('+') + 1).trim();
+                        if (parsed) customAuthor = parsed;
+                    }
+
+                    let stickerBuffer;
+
+                    // EKSEKUSI PEMBUATAN STIKER (SANGAT BERSIH)
+                    if (isImage) {
+                        const { Sticker } = require('wa-sticker-formatter');
+                        const sticker = new Sticker(mediaBuffer, { 
+                            
+                            author: customAuthor, 
+                            type: 'crop', 
+                            quality: 50 
+                        });
+                        stickerBuffer = await sticker.toBuffer();
+                    } else if (isVideo) {
+                        // Memanggil fungsi dari ffmpeg.js
+                        stickerBuffer = await createVideoSticker(mediaBuffer, customAuthor);
+                    }
+
+                    // Kirim Stiker ke Chat
+                    await sock.sendMessage(jid, { sticker: stickerBuffer }, { quoted: m });
+                    
+                } catch (error) {
+                    console.error("Error Sticker:", error);
+                    await sock.sendMessage(jid, { text: `❌ Gagal memproses stiker.` }, { quoted: m });
+                }
+                break;
+            }
+
+
+            case 'brat': {
+                const textQuery = body.split(' ').slice(1).join(' ');
+                if (!textQuery) return sock.sendMessage(jid, { text: 'Masukkan teks,.brat Halo' }, { quoted: m });
+                if (textQuery.replace(/\s/g, '').length > 18) {
+                    return sock.sendMessage(jid, { text: 'Teks terlalu panjang (Maks 18 karakter bersih).' }, { quoted: m });
+                }
+
+                try {
+                    const pngBuffer = await createBlackWhiteText(textQuery);
+                    const sticker = new Sticker(pngBuffer, {
+                        pack: 'Nayozu Bot',
+                        author: 'Whatsapp',
+                        type: StickerTypes.FULL,
+                        quality: 70
+                    });
+                    const stickerBuffer = await sticker.toBuffer();
+                    await sock.sendMessage(jid, { sticker: stickerBuffer }, { quoted: m });
+                } catch (error) {
+                    await sock.sendMessage(jid, { text: `Gagal membuat brat.` }, { quoted: m });
+                }
+                break;
+            }
+
+            case 'tourl': {
+                try {
+                    // Pakai unwrapMessage dari utils.js agar kodenya konsisten
+                    const realMsg = unwrapMessage(m.message);
+                    if (!realMsg) return;
+                    
+                    const msgTypeReal = Object.keys(realMsg)[0];
+                    const contextInfo = realMsg[msgTypeReal]?.contextInfo;
+                    const isQuoted = !!contextInfo?.quotedMessage;
+                    const cleanMsg = unwrapMessage(isQuoted ? contextInfo.quotedMessage : realMsg);
+                    
+                    const validTypes = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'];
+                    const msgType = Object.keys(cleanMsg || {}).find(key => validTypes.includes(key));
+                    if (!msgType) {
+                        return sock.sendMessage(jid, { text: 'Kirim atau reply media dengan .tourl' }, { quoted: m });
+                    }
+
+                    const targetMessageObj = isQuoted ? {
+                        key: { remoteJid: jid, id: contextInfo?.stanzaId || m.key.id, participant: contextInfo?.participant },
+                        message: cleanMsg
+                    } : { key: m.key, message: cleanMsg };
+
+                    const buffer = await downloadMediaMessage(targetMessageObj, 'buffer', {});
+                    if (!buffer) throw new Error("Gagal unduh media");
+
+                    if (buffer.length > 25 * 1024 * 1024) {
+                        return sock.sendMessage(jid, { text: "File terlalu besar untuk diunggah (Maks 25MB)." }, { quoted: m });
+                    }
+
+                    await sock.sendMessage(jid, { text: 'Mengunggah...' }, { quoted: m });
+                    const mime = cleanMsg[msgType]?.mimetype || 'application/octet-stream';
+                    let ext = mime.split('/')[1]?.split(';')[0] || 'bin';
+                    const result = await uploadToImageKit(buffer, `media_${Date.now()}.${ext}`);
+
+                    await sock.sendMessage(jid, { text: `URL: ${result.url}\nSize: ${result.size} MB` }, { quoted: m });
+                } catch (error) {
+                    await sock.sendMessage(jid, { text: `Gagal mengunggah.` }, { quoted: m });
+                }
+                break;
+            }
+
+
+            case 'sewa':
+                await sendButtons(sock, jid, {
+                    title: '[ *Sewa bot* ]',
+                    text: 'Hubungi moderator untuk informasi lebih lanjut.',
+                    footer: 'Nayozu',
+                    buttons: [{ name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: 'Chat Moderator', url: 'https://wa.me/6285764554290', merchant_url: 'https://wa.me/6285764554290' }) }]
+                }, { generateWAMessageFromContent, proto, quoted: m });
+                break;
         }
         return true; 
     }
-
     return false; 
 }
 

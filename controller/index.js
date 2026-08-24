@@ -3,19 +3,7 @@ const RoleModel = require('../models/RoleModel');
 const otoritasController = require('./otoritas');
 const groupController = require('./groupController');
 const { menuController } = require('./menuController');
-
-function clearJid(jid) {
-    if (!jid) return "";
-    if (jid.includes("@lid")) {
-        const parts = jid.split("@");
-        const user = parts[0].split(":")[0];
-        return `${user}@lid`;
-    }
-    const parts = jid.split("@");
-    const user = parts[0].split(":")[0];
-    const domain = parts[1] || "s.whatsapp.net";
-    return `${user}@${domain}`;
-}
+const { clearJid } = require('./utils');
 
 function getText(msg) {
     return (
@@ -68,7 +56,6 @@ module.exports = (sock, sessionId = 'lokal') => {
 
             if (!body) return;
 
-            // 1. Validasi Role dari Database RoleModel
             const roleDoc = await RoleModel.findOne({
                 $or: [
                     { jid: cleanSender },
@@ -78,7 +65,7 @@ module.exports = (sock, sessionId = 'lokal') => {
 
             const isMaster = roleDoc?.role === 'master';
             const isMod = roleDoc?.role === 'mod';
-            const hasDeepAuthority = isMaster || isMod; // Moderator & Master memiliki Deep Authority
+            const hasDeepAuthority = isMaster || isMod;
             
             let isGuest = false;
             if (roleDoc?.role === 'guest') {
@@ -96,46 +83,55 @@ module.exports = (sock, sessionId = 'lokal') => {
                 await syncGroupMetadata(sock, jid, sessionId);
                 groupData = await GroupModel.findById(`${sessionId}_${jid}`);
                 isAdminGroup = groupData?.admins.includes(cleanSender) || false;
+
+                // Auto unreg jika masa aktif grup expired
+                if (groupData?.registered && groupData?.expiresAt) {
+                    if (new Date() >= new Date(groupData.expiresAt)) {
+                        await GroupModel.findByIdAndUpdate(`${sessionId}_${jid}`, {
+                            registered: false,
+                            expiresAt: null,
+                            addedByRole: null,
+                            addedByJid: null,
+                            addedByLid: null
+                        });
+                        await sock.sendMessage(jid, { 
+                            text: "⚠️ Masa aktif pendaftaran grup ini telah habis. Status registrasi otomatis dicabut oleh sistem." 
+                        });
+                        groupData.registered = false;
+                    }
+                }
             }
 
-            // 2. Routing Perintah Administratif ("-c") -> Hanya Master & Mod
             if (body.startsWith("-c")) {
                 if (!hasDeepAuthority) return;
-                const handled = await otoritasController(sock, m, { jid, sender: cleanSender, body, sessionId, isMaster, isMod });
+                const handled = await otoritasController(sock, m, { jid, sender: cleanSender, body, sessionId, isMaster, isMod, isGroup });
                 if (handled) return;
             }
 
-            // 3. ATURAN KETAT GUEST: MUTLAK HANYA BOLEH AKSES MENU CONTROLLER
             if (isGuest && !hasDeepAuthority) {
                 if (body.startsWith(".")) {
-                    await menuController(sock, m, { jid, sender: cleanSender, body, isMaster });
+                    await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
                 }
                 return;
             }
 
-            // 4. Routing Utama Fitur / Menu / Grup (Prefix ".")
             if (body.startsWith(".")) {
-                
                 if (isGroup) {
                     const isRegistered = groupData && groupData.registered;
 
-                    // Moderator & Master kebal dari aturan blokir grup yang belum terdaftar
                     if (!isRegistered && !hasDeepAuthority) {
                         await sock.sendMessage(jid, { text: "Grup ini belum terdaftar di sistem, Hubungi master atau moderators." }, { quoted: m });
                         return;
                     }
 
-                    // ESTAFET 1: Lempar ke menuController dulu (Cek apakah ini .dl, .sticker, .menu, dll)
-                    const isHandledByMenu = await menuController(sock, m, { jid, sender: cleanSender, body, isMaster });
+                    const isHandledByMenu = await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
                     
-                    // ESTAFET 2: Jika menuController mengembalikan false (command tidak ada di daftar), lempar ke groupController
                     if (!isHandledByMenu) {
-                        await groupController(sock, m, { jid, sender: cleanSender, body, groupData, isAdminGroup });
+                        await groupController(sock, m, { jid, sender: cleanSender, body, groupData, isAdminGroup, isMaster, sessionId });
                     }
 
                 } else {
-                    // Di Private Chat (Jalur Pribadi)
-                    await menuController(sock, m, { jid, sender: cleanSender, body, isMaster });
+                    await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
                 }
             }
 
