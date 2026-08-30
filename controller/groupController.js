@@ -1,4 +1,5 @@
-const { clearJid, getTarget, isBotAdmin, isAdmin, getGroupInfo, checkIfMaster } = require('./utils');
+// Panggil seluruh utils sebagai satu objek utuh
+const utils = require('./utils');
 const GROUPS = new Map(); 
 const PREFIX = ".";
 
@@ -11,6 +12,7 @@ function getSetting(jid) {
 
 module.exports = async (sock, m, context) => {
     try {
+        // isMaster di sini adalah BOOLEAN (true/false) bawaan pengirim dari index.js
         const { jid, sender, body, groupData, isAdminGroup, isMaster } = context;
         const reply = (text, quoted = m) => sock.sendMessage(jid, { text }, { quoted });
         const setting = getSetting(jid);
@@ -18,23 +20,42 @@ module.exports = async (sock, m, context) => {
         const isAuthorized = isMaster || isAdminGroup;
 
         // 1. Anti-link
+
+        // 1. Anti-link (Deteksi domain & URL dinamis secara universal)
         if (setting.antilink && !isAuthorized) {
             const text = body.toLowerCase();
-            const detect = text.includes("chat.whatsapp.com/") || text.includes("wa.me/") || text.includes("https://") || text.includes("http://");
-            if (detect && (await isBotAdmin(sock, jid))) {
-                await sock.sendMessage(jid, { delete: m.key });
+            const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}(\/[^\s]*)?)/i;
+            
+            const detect = linkRegex.test(text);
+
+            if (detect) {
+                if (await utils.isBotAdmin(sock, jid)) {
+                    try {
+                        await sock.sendMessage(jid, { delete: m.key });
+                    } catch (err) {
+                        console.log(`[Anti-Link] Gagal menghapus pesan: ${err.message}`);
+                    }
+                }
+                return; // Berhenti agar pesan link tidak diproses lanjut
             }
         }
+
 
         // 2. Anti-APK
         if (setting.antiapk && !isAuthorized) {
             const doc = m.message?.documentMessage;
             if (doc && doc.mimetype === "application/vnd.android.package-archive") {
-                if (await isBotAdmin(sock, jid)) {
-                    await sock.sendMessage(jid, { delete: m.key });
+                if (await utils.isBotAdmin(sock, jid)) {
+                    try {
+                        await sock.sendMessage(jid, { delete: m.key });
+                    } catch (err) {
+                        console.log(`[Anti-APK] Gagal menghapus APK di ${jid}: ${err.message}`);
+                    }
                 }
+                return; // Stop eksekusi
             }
         }
+        
 
         if (!body.startsWith(PREFIX)) return;
         const args = body.slice(PREFIX.length).trim().split(/\s+/);
@@ -43,25 +64,32 @@ module.exports = async (sock, m, context) => {
         if (!isAuthorized) return;
 
         switch (cmd) {
+            
             case "kick": {
-                const target = await getTarget(m);
+                const target = await utils.getTarget(m);
                 if (!target) return reply("Reply, tag, atau masukkan nomor whatsapp.", m);
                 if (target === sender) return reply("Tidak bisa kick diri sendiri.", m);
                 
-                if (await checkIfMaster(target)) return reply("Target adalah master.", m);
+                // Cek status target murni pakai library utils
+                if (utils.isMaster(target)) return reply("Target adalah master sistem, tindakan ditolak.", m);
                 
-                if (groupData?.admins.includes(target) && !isMaster) return reply("Tidak bisa kick admin.", m);
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                // Cek status pengirim pakai boolean isMaster dari context
+                if (groupData?.admins?.includes(target) && !isMaster) return reply("Tidak bisa menendang sesama admin.", m);
+                
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
 
                 await sock.groupParticipantsUpdate(jid, [target], "remove");
                 return reply("Member berhasil dikeluarkan.", m);
             }
 
             case "add": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
-                const target = await getTarget(m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                const target = await utils.getTarget(m);
                 if (!target) return reply("Masukkan nomor whatsapp yang benar.", m);
-                if (target === clearJid(sock.user?.id) || target === clearJid(sock.user?.lid)) return reply("Gak bisa add bot sendiri.", m);
+                
+                if (target === utils.clearJid(sock.user?.id) || target === utils.clearJid(sock.user?.lid)) {
+                    return reply("Gak bisa add bot sendiri.", m);
+                }
                 
                 await reply(`Proses add members...`, m);
                 try {
@@ -77,23 +105,24 @@ module.exports = async (sock, m, context) => {
             }
 
             case "promote": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
-                const target = await getTarget(m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                const target = await utils.getTarget(m);
                 if (!target) return reply("Target tidak ditemukan.", m);
-                if (await isAdmin(sock, jid, target)) return reply("User sudah menjadi admin.", m);
+                if (await utils.isAdmin(sock, jid, target)) return reply("User sudah menjadi admin.", m);
 
                 await sock.groupParticipantsUpdate(jid, [target], "promote");
                 return reply("Promote berhasil.", m);
             }
 
             case "demote": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
-                const target = await getTarget(m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                const target = await utils.getTarget(m);
                 if (!target) return reply("Target tidak ditemukan.", m);
                 
-                if (await checkIfMaster(target)) return reply("Master tidak bisa di-demote.", m);
+                // Cek target pakai library utils, tanpa await karena sinkron
+                if (utils.isMaster(target)) return reply("Master tidak bisa di-demote.", m);
                 
-                if (!(await isAdmin(sock, jid, target))) return reply("Target bukan admin.", m);
+                if (!(await utils.isAdmin(sock, jid, target))) return reply("Target bukan admin.", m);
 
                 await sock.groupParticipantsUpdate(jid, [target], "demote");
                 return reply("Demote berhasil.", m);
@@ -105,7 +134,7 @@ module.exports = async (sock, m, context) => {
                 if (!contextInfo?.stanzaId) return reply("Reply pesan yang ingin dihapus.", m);
 
                 const participant = contextInfo.participant;
-                const isBotMessage = clearJid(participant) === clearJid(sock.user?.id);
+                const isBotMessage = utils.clearJid(participant) === utils.clearJid(sock.user?.id);
 
                 await sock.sendMessage(jid, {
                     delete: {
@@ -123,12 +152,12 @@ module.exports = async (sock, m, context) => {
             }
 
             case "groupinfo": {
-                const data = await getGroupInfo(sock, jid, sender);
+                const data = await utils.getGroupInfo(sock, jid, sender);
                 return reply(`*Group info*\n\nNama :\n${data.metadata.subject}\n\nID :\n${jid}\n\nAnti Link :\n${setting.antilink ? "ON" : "OFF"}\n\nAnti APK :\n${setting.antiapk ? "ON" : "OFF"}`, m);
             }
 
             case "members": {
-                const data = await getGroupInfo(sock, jid, sender);
+                const data = await utils.getGroupInfo(sock, jid, sender);
                 const total = data.metadata.participants.length;
                 const admin = data.admins.length;
                 const member = total - admin;
@@ -150,25 +179,25 @@ module.exports = async (sock, m, context) => {
             }
 
             case "open": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
                 await sock.groupSettingUpdate(jid, "not_announcement");
                 return reply("Group berhasil dibuka.", m);
             }
 
             case "close": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
                 await sock.groupSettingUpdate(jid, "announcement");
                 return reply("Group berhasil ditutup.", m);
             }
 
             case "linkgroup": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
                 const code = await sock.groupInviteCode(jid);
                 return reply(`https://chat.whatsapp.com/${code}`, m);
             }
 
             case "resetlink": {
-                if (!(await isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
+                if (!(await utils.isBotAdmin(sock, jid))) return reply("Bot bukan admin.", m);
                 const code = await sock.groupRevokeInvite(jid);
                 return reply(`Link baru:\n\nhttps://chat.whatsapp.com/${code}`, m);
             }

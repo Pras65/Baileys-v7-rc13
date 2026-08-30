@@ -1,41 +1,10 @@
 const GroupModel = require('../models/GroupModel');
-const RoleModel = require('../models/RoleModel');
 const otoritasController = require('./otoritas');
 const groupController = require('./groupController');
 const { menuController } = require('./menuController');
-const { clearJid } = require('./utils');
 
-function getText(msg) {
-    return (
-        msg?.conversation ||
-        msg?.extendedTextMessage?.text ||
-        msg?.imageMessage?.caption ||
-        msg?.videoMessage?.caption ||
-        ""
-    );
-}
-
-async function syncGroupMetadata(sock, jid, sessionId) {
-    try {
-        const metadata = await sock.groupMetadata(jid);
-        const admins = metadata.participants
-            .filter(v => v.admin === "admin" || v.admin === "superadmin")
-            .map(v => clearJid(v.id));
-
-        const docId = `${sessionId}_${jid}`;
-        await GroupModel.findByIdAndUpdate(docId, {
-            sessionId,
-            jid,
-            subject: metadata.subject,
-            admins,
-            updatedAt: new Date()
-        }, { upsert: true, returnDocument: 'after' });
-
-        return metadata;
-    } catch (err) {
-        return null;
-    }
-}
+// Import seluruh fungsi utils ke dalam satu objek untuk mencegah bentrok nama
+const utils = require('./utils');
 
 module.exports = (sock, sessionId = 'lokal') => {
     if (!sock || typeof sock.ev?.on !== 'function') return;
@@ -48,41 +17,23 @@ module.exports = (sock, sessionId = 'lokal') => {
             if (!m || m.key.fromMe) return;
             await sock.readMessages([m.key]);
             
-            const jid = m.key.remoteJid;
-            const rawSender = m.key.participant || m.key.remoteJid;
-            const cleanSender = clearJid(rawSender);
-            const body = getText(m.message);
-            const isGroup = jid.endsWith("@g.us");
-
+            // 1. Ekstrak Data Dasar Pesan via Utils
+            const { jid, cleanSender, isGroup } = utils.extractMessageData(m);
+            const body = utils.getText(m.message);
             if (!body) return;
 
-            const roleDoc = await RoleModel.findOne({
-                $or: [
-                    { jid: cleanSender },
-                    { lid: cleanSender }
-                ]
-            });
-
-            const isMaster = roleDoc?.role === 'master';
-            const isMod = roleDoc?.role === 'mod';
-            const hasDeepAuthority = isMaster || isMod;
-            
-            let isGuest = false;
-            if (roleDoc?.role === 'guest') {
-                if (roleDoc.expiresAt && new Date() < new Date(roleDoc.expiresAt)) {
-                    isGuest = true;
-                } else if (roleDoc.expiresAt && new Date() >= new Date(roleDoc.expiresAt)) {
-                    await RoleModel.deleteOne({ _id: roleDoc._id });
-                }
-            }
+            // 2. Ekstrak Otoritas Pengirim (Asinkron / Database + Hardcoded)
+            // isMaster di sini adalah Boolean khusus untuk si Pengirim (sender)
+            const { isMaster, isMod, hasDeepAuthority, isGuest } = await utils.getUserAuthority(cleanSender);
 
             let groupData = null;
             let isAdminGroup = false;
 
+            // 3. Manajemen Status Grup
             if (isGroup) {
-                await syncGroupMetadata(sock, jid, sessionId);
+                await utils.syncGroupMetadata(sock, jid, sessionId);
                 groupData = await GroupModel.findById(`${sessionId}_${jid}`);
-                isAdminGroup = groupData?.admins.includes(cleanSender) || false;
+                isAdminGroup = groupData?.admins?.includes(cleanSender) || false;
 
                 // Auto unreg jika masa aktif grup expired
                 if (groupData?.registered && groupData?.expiresAt) {
@@ -102,6 +53,7 @@ module.exports = (sock, sessionId = 'lokal') => {
                 }
             }
 
+            // 4. Dispatcher Rute (Arahkan pesan ke controller yang tepat)
             if (body.startsWith("-c")) {
                 if (!hasDeepAuthority) return;
                 const handled = await otoritasController(sock, m, { jid, sender: cleanSender, body, sessionId, isMaster, isMod, isGroup });
@@ -115,32 +67,36 @@ module.exports = (sock, sessionId = 'lokal') => {
                 return;
             }
 
-            if (body.startsWith(".")) {
-                if (isGroup) {
-                    const isRegistered = groupData && groupData.registered;
+if (isGroup) {
+                const isRegistered = groupData && groupData.registered;
 
-                    if (!isRegistered && !hasDeepAuthority) {
-                        await sock.sendMessage(jid, { text: "Grup ini belum terdaftar di sistem, Hubungi master atau moderators." }, { quoted: m });
-                        return;
-                    }
-
-                    const isHandledByMenu = await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
-                    
-                    if (!isHandledByMenu) {
-                        await groupController(sock, m, { jid, sender: cleanSender, body, groupData, isAdminGroup, isMaster, sessionId });
-                    }
-
-                } else {
-                    await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
+                if (!isRegistered && !hasDeepAuthority && body.startsWith(".")) {
+                    await sock.sendMessage(jid, { text: "Grup ini belum terdaftar di sistem. Hubungi master atau moderator." }, { quoted: m });
+                    return;
                 }
+
+                // Cek apakah ini perintah menu (.help, .sticker, dll)
+                let isHandledByMenu = false;
+                if (body.startsWith(".")) {
+                    isHandledByMenu = await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
+                }
+                
+                // Selalu panggil groupController untuk SEMUA pesan di grup
+                // Supaya Anti-Link & Anti-APK bisa membaca pesan yang TIDAK diawali titik (.)
+                if (!isHandledByMenu) {
+                    await groupController(sock, m, { jid, sender: cleanSender, body, groupData, isAdminGroup, isMaster, sessionId });
+            } else if (body.startsWith(".")) {
+                // Jalankan menu jika pesan di PM (Private Message) dan diawali titik
+                await menuController(sock, m, { jid, sender: cleanSender, body, isMaster, sessionId });
             }
+          }
 
         } catch (err) {
-            console.log("Error di Dispatcher Index:", err);
+            console.error("Error di Dispatcher Index:", err);
         }
     });
 
     sock.ev.on("group-participants.update", async ({ id: jid }) => {
-        if (jid) await syncGroupMetadata(sock, jid, sessionId);
+        if (jid) await utils.syncGroupMetadata(sock, jid, sessionId);
     });
 }

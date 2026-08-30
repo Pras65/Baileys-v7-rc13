@@ -72,7 +72,7 @@ async function createBlackWhiteText(text) {
         }
 
         // Ekspor ke buffer PNG agar bisa dikonversi oleh wa-sticker-formatter
-        const buffer = await image.getBuffer('image/png');
+        const buffer = await image.getBuffer('image/jpeg');
         return buffer;
     } catch (err) {
         throw new Error("Gagal merender teks: " + err.message);
